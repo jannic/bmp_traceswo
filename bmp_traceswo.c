@@ -55,6 +55,8 @@ found:
       exit(1);
     }
 
+    //printf("opened");
+
     res = libusb_claim_interface(handle, 5); // Black Magic Trace Capture
     if (res < 0) {
       fprintf(stderr, "libusb_claim_interface: %s\n", libusb_strerror(res));
@@ -63,26 +65,50 @@ found:
       exit(1);
     }
 
+    //printf("claimed\n");
+
     unsigned char ENDPOINT_UP = 0x85;
     int count;
+    int data_bytes = 0;
+    int chan = 0;
     unsigned char dataUp[64];
     while (1) {
+      //fprintf(stderr,"waiting for bulk transfer\n");
       res = libusb_bulk_transfer(handle, ENDPOINT_UP, dataUp, sizeof(dataUp), &count, 0);
+      //fprintf(stderr, "got bulk transfer, res: %i, count: %i\n", res, count);
       if (res < 0) {
         fprintf(stderr, "libusb_bulk_transfer: %s\n", libusb_strerror(res));
         if (res == LIBUSB_ERROR_NO_DEVICE)
           goto lost_device;
         continue;
       }
-      if (count & 1)
-        goto bad_packet;
-      for (int j = 0; j < count; j += 2)
-        if (dataUp[j] != 1)
-          goto bad_packet;
-      for (int j = 0; j < count; j += 2)
-        putchar(dataUp[j + 1]);
+      for (int j = 0; j < count; j += 1) {
+        if(data_bytes != 0) {
+          printf("%c", dataUp[j]);
+          data_bytes--;
+        } else {
+          int newchan = dataUp[j] >> 3;
+          if(chan != newchan) {
+            printf("\n%i: ", newchan);
+            chan = newchan;
+          }
+          switch(dataUp[j] & 3) {
+            case 0: goto bad_packet;
+            case 1:
+              data_bytes = 1;
+              break;
+            case 2:
+              data_bytes = 2;
+              break;
+            case 3:
+              data_bytes = 4;
+              break;
+          }
+        }
+      }
       continue;
     bad_packet:
+      printf("\n");
       fprintf(stderr, "bad packet:");
       for(int j = 0; j < count; j++)
         fprintf(stderr, " %02x",dataUp[j]);
